@@ -73,6 +73,7 @@ var (
 	externalCloudProvider            bool
 	bootstrapTokenServiceAccountName string
 	skipEvictionAfter                time.Duration
+	disableLeaderElection            bool
 
 	nodeHTTPProxy          string
 	nodeNoProxy            string
@@ -152,6 +153,7 @@ func main() {
 	flag.StringVar(&joinClusterTimeout, "join-cluster-timeout", "", "when set, machines that have an owner and do not join the cluster within the configured duration will be deleted, so the owner re-creats them")
 	flag.StringVar(&bootstrapTokenServiceAccountName, "bootstrap-token-service-account-name", "", "When set use the service account token from this SA as bootstrap token instead of creating a temporary one. Passed in namespace/name format")
 	flag.BoolVar(&profiling, "enable-profiling", false, "when set, enables the endpoints on the http server under /debug/pprof/")
+	flag.BoolVar(&disableLeaderElection, "disable-leader-election", false, "when set, do not perform leader election")
 	flag.BoolVar(&externalCloudProvider, "external-cloud-provider", false, "when set, kubelets will receive --cloud-provider=external flag")
 	flag.DurationVar(&skipEvictionAfter, "skip-eviction-after", 2*time.Hour, "Skips the eviction if a machine is not gone after the specified duration.")
 	flag.StringVar(&nodeHTTPProxy, "node-http-proxy", "", "If set, it configures the 'HTTP_PROXY' & 'HTTPS_PROXY' environment variable on the nodes.")
@@ -303,7 +305,7 @@ func main() {
 		g.Add(func() error {
 			runOptions.parentCtx = ctx
 			runOptions.parentCtxDone = ctxDone
-			return startControllerViaLeaderElection(runOptions)
+			return startController(runOptions)
 		}, func(err error) {
 			ctxDone()
 		})
@@ -312,10 +314,7 @@ func main() {
 	glog.Info(g.Run())
 }
 
-// startControllerViaLeaderElection starts machine controller only if a proper lock was acquired.
-// This essentially means that we can have multiple instances and at the same time only one is operational.
-// The program terminates when the leadership was lost.
-func startControllerViaLeaderElection(runOptions controllerRunOptions) error {
+func startController(runOptions controllerRunOptions) error {
 	mgrSyncPeriod := 5 * time.Minute
 	mgr, err := manager.New(runOptions.cfg, manager.Options{SyncPeriod: &mgrSyncPeriod})
 	if err != nil {
@@ -324,115 +323,130 @@ func startControllerViaLeaderElection(runOptions controllerRunOptions) error {
 		return err
 	}
 
-	id, err := os.Hostname()
-	if err != nil {
-		glog.Fatalf("error getting hostname: %s", err.Error())
-	}
-	// add a seed to the id, so that two processes on the same host don't accidentally both become active
-	id = id + "_" + string(uuid.NewUUID())
+	if disableLeaderElection {
+		go runController(mgr, runOptions, runOptions.parentCtx)
 
-	// add worker name to the election lock name to prevent conflicts between controllers handling different worker labels
-	leaderName := strings.Replace(machinecontroller.ControllerName, "_", "-", -1)
-	if runOptions.name != "" {
-		leaderName = runOptions.name + "-" + leaderName
-	}
+		<-runOptions.parentCtx.Done()
 
-	rl := resourcelock.EndpointsLock{
-		EndpointsMeta: metav1.ObjectMeta{
-			Namespace: defaultLeaderElectionNamespace,
-			Name:      leaderName,
-		},
-		Client: runOptions.kubeClient.CoreV1(),
-		LockConfig: resourcelock.ResourceLockConfig{
-			Identity:      id + fmt.Sprintf("-%s", leaderName),
-			EventRecorder: mgr.GetRecorder("machine_controller_leader_election"),
-		},
-	}
+	} else {
+		// here we start machine controller only if a proper lock was acquired.
+		// This essentially means that we can have multiple instances and at the same time only one is operational.
+		// The program terminates when the leadership was lost.
 
-	// I think this might be a bit paranoid but the fact the there is no way
-	// to stop the leader election library might cause synchronization issues.
-	// imagine that a user wants to shutdown the app but since there is no way of telling the library to stop it will eventually run `runController` method
-	// and bad things can happen - the fact it works at the moment doesn't mean it will in the future
-	runController := func(ctx context.Context) {
+		id, err := os.Hostname()
+		if err != nil {
+			glog.Fatalf("error getting hostname: %s", err.Error())
+		}
+		// add a seed to the id, so that two processes on the same host don't accidentally both become active
+		id = id + "_" + string(uuid.NewUUID())
 
-		providerData := &cloudprovidertypes.ProviderData{
-			Ctx:    ctx,
-			Update: cloudprovidertypes.GetMachineUpdater(ctx, mgr.GetClient()),
-			Client: mgr.GetClient(),
+		// add worker name to the election lock name to prevent conflicts between controllers handling different worker labels
+		leaderName := strings.Replace(machinecontroller.ControllerName, "_", "-", -1)
+		if runOptions.name != "" {
+			leaderName = runOptions.name + "-" + leaderName
 		}
 
-		// Migrate MachinesV1Alpha1Machine to ClusterV1Alpha1Machine
-		if err := migrations.MigrateMachinesv1Alpha1MachineToClusterv1Alpha1MachineIfNecessary(ctx, mgr.GetClient(), runOptions.kubeClient, providerData); err != nil {
-			glog.Errorf("Migration to clusterv1alpha1 failed: %v", err)
-			runOptions.parentCtxDone()
-			return
-		}
-
-		// Migrate providerConfig field to providerSpec field
-		if err := migrations.MigrateProviderConfigToProviderSpecIfNecesary(ctx, runOptions.cfg, mgr.GetClient()); err != nil {
-			glog.Errorf("Migration of providerConfig field to providerSpec field failed: %v", err)
-			runOptions.parentCtxDone()
-			return
-		}
-
-		if err := machinecontroller.Add(
-			ctx,
-			mgr,
-			runOptions.kubeClient,
-			workerCount,
-			runOptions.metrics,
-			runOptions.prometheusRegisterer,
-			runOptions.kubeconfigProvider,
-			providerData,
-			runOptions.joinClusterTimeout,
-			runOptions.externalCloudProvider,
-			runOptions.name,
-			runOptions.bootstrapTokenServiceAccountName,
-			runOptions.skipEvictionAfter,
-			runOptions.node,
-		); err != nil {
-			glog.Errorf("failed to add Machine controller to manager: %v", err)
-			runOptions.parentCtxDone()
-			return
-		}
-		if err := machinesetcontroller.Add(mgr); err != nil {
-			glog.Errorf("failed to add MachineSet controller to manager: %v", err)
-			runOptions.parentCtxDone()
-			return
-		}
-		if err := machinedeploymentcontroller.Add(mgr); err != nil {
-			glog.Errorf("failed to add MachineDeployment controller to manager: %v", err)
-			runOptions.parentCtxDone()
-			return
-		}
-		if err := mgr.Start(runOptions.parentCtx.Done()); err != nil {
-			glog.Errorf("failed to start kubebuilder manager: %v", err)
-			runOptions.parentCtxDone()
-			return
-		}
-
-		glog.Info("machine controller has been successfully stopped")
-	}
-
-	le, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
-		Lock:          &rl,
-		LeaseDuration: defaultLeaderElectionLeaseDuration,
-		RenewDeadline: defaultLeaderElectionRenewDeadline,
-		RetryPeriod:   defaultLeaderElectionRetryPeriod,
-		Callbacks: leaderelection.LeaderCallbacks{
-			OnStartedLeading: runController,
-			OnStoppedLeading: func() {
-				runOptions.parentCtxDone()
+		rl := resourcelock.EndpointsLock{
+			EndpointsMeta: metav1.ObjectMeta{
+				Namespace: defaultLeaderElectionNamespace,
+				Name:      leaderName,
 			},
-		},
-	})
-	if err != nil {
-		return err
-	}
-	go le.Run(runOptions.parentCtx)
+			Client: runOptions.kubeClient.CoreV1(),
+			LockConfig: resourcelock.ResourceLockConfig{
+				Identity:      id + fmt.Sprintf("-%s", leaderName),
+				EventRecorder: mgr.GetRecorder("machine_controller_leader_election"),
+			},
+		}
 
-	<-runOptions.parentCtx.Done()
+		// I think this might be a bit paranoid but the fact the there is no way
+		// to stop the leader election library might cause synchronization issues.
+		// imagine that a user wants to shutdown the app but since there is no way of telling the library to stop it will eventually run `runController` method
+		// and bad things can happen - the fact it works at the moment doesn't mean it will in the future
+
+		le, err := leaderelection.NewLeaderElector(leaderelection.LeaderElectionConfig{
+			Lock:          &rl,
+			LeaseDuration: defaultLeaderElectionLeaseDuration,
+			RenewDeadline: defaultLeaderElectionRenewDeadline,
+			RetryPeriod:   defaultLeaderElectionRetryPeriod,
+			Callbacks: leaderelection.LeaderCallbacks{
+				OnStartedLeading: func(ctx context.Context) {
+					runController(mgr, runOptions, ctx)
+				},
+				OnStoppedLeading: func() {
+					runOptions.parentCtxDone()
+				},
+			},
+		})
+		if err != nil {
+			return err
+		}
+		go le.Run(runOptions.parentCtx)
+
+		<-runOptions.parentCtx.Done()
+	}
+
 	return nil
+}
+
+func runController(mgr manager.Manager, runOptions controllerRunOptions, ctx context.Context) {
+
+	providerData := &cloudprovidertypes.ProviderData{
+		Ctx:    ctx,
+		Update: cloudprovidertypes.GetMachineUpdater(ctx, mgr.GetClient()),
+		Client: mgr.GetClient(),
+	}
+
+	// Migrate MachinesV1Alpha1Machine to ClusterV1Alpha1Machine
+	if err := migrations.MigrateMachinesv1Alpha1MachineToClusterv1Alpha1MachineIfNecessary(ctx, mgr.GetClient(), runOptions.kubeClient, providerData); err != nil {
+		glog.Errorf("Migration to clusterv1alpha1 failed: %v", err)
+		runOptions.parentCtxDone()
+		return
+	}
+
+	// Migrate providerConfig field to providerSpec field
+	if err := migrations.MigrateProviderConfigToProviderSpecIfNecesary(ctx, runOptions.cfg, mgr.GetClient()); err != nil {
+		glog.Errorf("Migration of providerConfig field to providerSpec field failed: %v", err)
+		runOptions.parentCtxDone()
+		return
+	}
+
+	if err := machinecontroller.Add(
+		ctx,
+		mgr,
+		runOptions.kubeClient,
+		workerCount,
+		runOptions.metrics,
+		runOptions.prometheusRegisterer,
+		runOptions.kubeconfigProvider,
+		providerData,
+		runOptions.joinClusterTimeout,
+		runOptions.externalCloudProvider,
+		runOptions.name,
+		runOptions.bootstrapTokenServiceAccountName,
+		runOptions.skipEvictionAfter,
+		runOptions.node,
+	); err != nil {
+		glog.Errorf("failed to add Machine controller to manager: %v", err)
+		runOptions.parentCtxDone()
+		return
+	}
+	if err := machinesetcontroller.Add(mgr); err != nil {
+		glog.Errorf("failed to add MachineSet controller to manager: %v", err)
+		runOptions.parentCtxDone()
+		return
+	}
+	if err := machinedeploymentcontroller.Add(mgr); err != nil {
+		glog.Errorf("failed to add MachineDeployment controller to manager: %v", err)
+		runOptions.parentCtxDone()
+		return
+	}
+	if err := mgr.Start(runOptions.parentCtx.Done()); err != nil {
+		glog.Errorf("failed to start kubebuilder manager: %v", err)
+		runOptions.parentCtxDone()
+		return
+	}
+
+	glog.Info("machine controller has been successfully stopped")
 }
 
 // createUtilHTTPServer creates a new HTTP server
