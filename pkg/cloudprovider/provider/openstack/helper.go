@@ -25,6 +25,7 @@ import (
 	"github.com/gophercloud/gophercloud"
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
 	osavailabilityzones "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/availabilityzones"
+	osservergroups "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/servergroups"
 	osflavors "github.com/gophercloud/gophercloud/openstack/compute/v2/flavors"
 	osimages "github.com/gophercloud/gophercloud/openstack/compute/v2/images"
 	osregions "github.com/gophercloud/gophercloud/openstack/identity/v3/regions"
@@ -190,6 +191,30 @@ func getSecurityGroup(client *gophercloud.ProviderClient, region, name string) (
 	return nil, errNotFound
 }
 
+func serverGroupByName(computeClient *gophercloud.ServiceClient, n string) (*osservergroups.ServerGroup, error) {
+	var sg *osservergroups.ServerGroup
+	err := osservergroups.List(computeClient).EachPage(func(page pagination.Page) (bool, error) {
+		items, err := osservergroups.ExtractServerGroups(page)
+		if err != nil {
+			return false, err
+		}
+		for _, item := range items {
+			if item.Name == n {
+				sg = &item
+				return false, nil
+			}
+		}
+		return true, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if sg == nil {
+		return nil, errNotFound
+	}
+	return sg, nil
+}
+
 func getNetworks(client *gophercloud.ProviderClient, region string) ([]osnetworks.Network, error) {
 	netClient, err := goopenstack.NewNetworkV2(client, gophercloud.EndpointOpts{Region: region})
 	if err != nil {
@@ -314,6 +339,24 @@ func ensureKubernetesSecurityGroupExist(client *gophercloud.ProviderClient, regi
 	}
 
 	return nil
+}
+
+func ensureServerGroupExists(computeClient *gophercloud.ServiceClient, n string) (string, error) {
+	sg, err := serverGroupByName(computeClient, n)
+	if err != nil {
+		if err == errNotFound {
+			sg, err := osservergroups.Create(computeClient, &osservergroups.CreateOpts{
+				Name:     n,
+				Policies: []string{"soft-anti-affinity"},
+			}).Extract()
+			if err != nil {
+				return "", err
+			}
+			return sg.ID, nil
+		}
+		return "", err
+	}
+	return sg.ID, nil
 }
 
 func getFreeFloatingIPs(client *gophercloud.ProviderClient, region string, floatingIPPool *osnetworks.Network) ([]osfloatingips.FloatingIP, error) {

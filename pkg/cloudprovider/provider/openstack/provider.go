@@ -28,6 +28,7 @@ import (
 	goopenstack "github.com/gophercloud/gophercloud/openstack"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/bootfromvolume"
 	osextendedstatus "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/extendedstatus"
+	osschedulerhints "github.com/gophercloud/gophercloud/openstack/compute/v2/extensions/schedulerhints"
 	osservers "github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
 	osfloatingips "github.com/gophercloud/gophercloud/openstack/networking/v2/extensions/layer3/floatingips"
 	osnetworks "github.com/gophercloud/gophercloud/openstack/networking/v2/networks"
@@ -86,6 +87,8 @@ type Config struct {
 	TrustDevicePath       bool
 	RootDiskSizeGB        *int
 	NodeVolumeAttachLimit *uint
+
+	CreateOrReuseSoftAntiAffinityName string
 
 	Tags map[string]string
 }
@@ -185,6 +188,10 @@ func (p *provider) getConfig(s v1alpha1.ProviderSpec) (*Config, *providerconfigt
 	}
 	c.RootDiskSizeGB = rawConfig.RootDiskSizeGB
 	c.NodeVolumeAttachLimit = rawConfig.NodeVolumeAttachLimit
+	c.CreateOrReuseSoftAntiAffinityName, err = p.configVarResolver.GetConfigVarStringValue(rawConfig.CreateOrReuseSoftAntiAffinityName)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	c.Tags = rawConfig.Tags
 	if c.Tags == nil {
 		c.Tags = map[string]string{}
@@ -393,6 +400,17 @@ func (p *provider) Validate(spec v1alpha1.MachineSpec) error {
 		}
 	}
 
+	if n := c.CreateOrReuseSoftAntiAffinityName; n != "" {
+		computeClient, err := goopenstack.NewComputeV2(client, gophercloud.EndpointOpts{Availability: gophercloud.AvailabilityPublic, Region: c.Region})
+		if err != nil {
+			return fmt.Errorf("failed to get compute client: %v", err)
+		}
+
+		if _, err = serverGroupByName(computeClient, n); err != nil {
+			return fmt.Errorf("failed to get servergroup by name '%s': %v", n, err)
+		}
+	}
+
 	// validate reserved tags
 	if _, ok := c.Tags[machineUIDMetaKey]; ok {
 		return fmt.Errorf("the tag with the given name =%s is reserved, choose a different one", machineUIDMetaKey)
@@ -449,7 +467,10 @@ func (p *provider) Create(machine *v1alpha1.Machine, data *cloudprovidertypes.Pr
 	allTags := c.Tags
 	allTags[machineUIDMetaKey] = string(machine.UID)
 
-	serverOpts := osservers.CreateOpts{
+	// Declare as interface so we can safely extend request via request extentions
+	var createOpts osservers.CreateOptsBuilder
+
+	createOpts = &osservers.CreateOpts{
 		Name:             machine.Spec.Name,
 		FlavorRef:        flavor.ID,
 		ImageRef:         image.ID,
@@ -458,6 +479,19 @@ func (p *provider) Create(machine *v1alpha1.Machine, data *cloudprovidertypes.Pr
 		AvailabilityZone: c.AvailabilityZone,
 		Networks:         []osservers.Network{{UUID: network.ID}},
 		Metadata:         allTags,
+	}
+
+	if n := c.CreateOrReuseSoftAntiAffinityName; n != "" {
+		id, err := ensureServerGroupExists(computeClient, n)
+		if err != nil {
+			return nil, fmt.Errorf("failed to ensure servergroup '%s' exists: %v", n, err)
+		}
+		createOpts = &osschedulerhints.CreateOptsExt{
+			CreateOptsBuilder: createOpts,
+			SchedulerHints: osschedulerhints.SchedulerHints{
+				Group: id,
+			},
+		}
 	}
 
 	var server serverWithExt
@@ -471,15 +505,15 @@ func (p *provider) Create(machine *v1alpha1.Machine, data *cloudprovidertypes.Pr
 				VolumeSize:          *c.RootDiskSizeGB,
 			},
 		}
-		createOpts := bootfromvolume.CreateOptsExt{
-			CreateOptsBuilder: serverOpts,
+		createOpts = bootfromvolume.CreateOptsExt{
+			CreateOptsBuilder: createOpts,
 			BlockDevice:       blockDevices,
 		}
 		if err := bootfromvolume.Create(computeClient, createOpts).ExtractInto(&server); err != nil {
 			return nil, osErrorToTerminalError(err, "failed to create server with volume")
 		}
 	} else {
-		if err := osservers.Create(computeClient, serverOpts).ExtractInto(&server); err != nil {
+		if err := osservers.Create(computeClient, createOpts).ExtractInto(&server); err != nil {
 			return nil, osErrorToTerminalError(err, "failed to create server")
 		}
 	}
