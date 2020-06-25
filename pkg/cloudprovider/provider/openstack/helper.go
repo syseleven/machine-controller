@@ -342,6 +342,13 @@ func ensureKubernetesSecurityGroupExist(client *gophercloud.ProviderClient, regi
 }
 
 func ensureServerGroupExists(computeClient *gophercloud.ServiceClient, n string) (string, error) {
+	// Set microversion 2.15 that supports soft-anti-affinity
+	old := computeClient.Microversion
+	defer func() {
+		computeClient.Microversion = old
+	}()
+	computeClient.Microversion = "2.15"
+
 	sg, err := serverGroupByName(computeClient, n)
 	if err != nil {
 		if err == errNotFound {
