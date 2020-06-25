@@ -43,7 +43,7 @@ type RawConfig struct {
 	RootDiskSizeGB        *int                                  `json:"rootDiskSizeGB"`
 	NodeVolumeAttachLimit *uint                                 `json:"nodeVolumeAttachLimit"`
 
-	CreateOrReuseSoftAntiAffinityName providerconfigtypes.ConfigVarString `json:"CreateOrReuseSoftAntiAffinityName"`
+	ServerGroupID providerconfigtypes.ConfigVarString `json:"serverGroupID"`
 	// This tag is related to server metadata, not compute server's tag
 	Tags map[string]string `json:"tags,omitempty"`
 }

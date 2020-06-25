@@ -88,7 +88,7 @@ type Config struct {
 	RootDiskSizeGB        *int
 	NodeVolumeAttachLimit *uint
 
-	CreateOrReuseSoftAntiAffinityName string
+	ServerGroupID string
 
 	Tags map[string]string
 }
@@ -188,7 +188,7 @@ func (p *provider) getConfig(s v1alpha1.ProviderSpec) (*Config, *providerconfigt
 	}
 	c.RootDiskSizeGB = rawConfig.RootDiskSizeGB
 	c.NodeVolumeAttachLimit = rawConfig.NodeVolumeAttachLimit
-	c.CreateOrReuseSoftAntiAffinityName, err = p.configVarResolver.GetConfigVarStringValue(rawConfig.CreateOrReuseSoftAntiAffinityName)
+	c.ServerGroupID, err = p.configVarResolver.GetConfigVarStringValue(rawConfig.ServerGroupID)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -400,6 +400,13 @@ func (p *provider) Validate(spec v1alpha1.MachineSpec) error {
 		}
 	}
 
+	if c.ServerGroupID != "" {
+		_, err = getServerGroup(client, c.ServerGroupID, c.Region)
+		if err != nil {
+			return fmt.Errorf("failed to get server group with id '%s': %v", c.ServerGroupID, err)
+		}
+	}
+
 	// validate reserved tags
 	if _, ok := c.Tags[machineUIDMetaKey]; ok {
 		return fmt.Errorf("the tag with the given name =%s is reserved, choose a different one", machineUIDMetaKey)
@@ -470,15 +477,11 @@ func (p *provider) Create(machine *v1alpha1.Machine, data *cloudprovidertypes.Pr
 		Metadata:         allTags,
 	}
 
-	if n := c.CreateOrReuseSoftAntiAffinityName; n != "" {
-		id, err := ensureServerGroupExists(computeClient, n)
-		if err != nil {
-			return nil, fmt.Errorf("failed to ensure servergroup '%s' exists: %v", n, err)
-		}
+	if c.ServerGroupID != "" {
 		createOpts = &osschedulerhints.CreateOptsExt{
 			CreateOptsBuilder: createOpts,
 			SchedulerHints: osschedulerhints.SchedulerHints{
-				Group: id,
+				Group: c.ServerGroupID,
 			},
 		}
 	}

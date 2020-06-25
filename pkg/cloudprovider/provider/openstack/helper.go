@@ -91,6 +91,14 @@ func getAvailabilityZones(client *gophercloud.ProviderClient, region string) ([]
 	return osavailabilityzones.ExtractAvailabilityZones(allPages)
 }
 
+func getServerGroup(client *gophercloud.ProviderClient, id, region string) (*osservergroups.ServerGroup, error) {
+	computeClient, err := goopenstack.NewComputeV2(client, gophercloud.EndpointOpts{Region: region})
+	if err != nil {
+		return nil, err
+	}
+	return osservergroups.Get(computeClient, id).Extract()
+}
+
 func getAvailabilityZone(client *gophercloud.ProviderClient, region, name string) (*osavailabilityzones.AvailabilityZone, error) {
 	zones, err := getAvailabilityZones(client, region)
 	if err != nil {
@@ -189,30 +197,6 @@ func getSecurityGroup(client *gophercloud.ProviderClient, region, name string) (
 	}
 
 	return nil, errNotFound
-}
-
-func serverGroupByName(computeClient *gophercloud.ServiceClient, n string) (*osservergroups.ServerGroup, error) {
-	var sg *osservergroups.ServerGroup
-	err := osservergroups.List(computeClient).EachPage(func(page pagination.Page) (bool, error) {
-		items, err := osservergroups.ExtractServerGroups(page)
-		if err != nil {
-			return false, err
-		}
-		for _, item := range items {
-			if item.Name == n {
-				sg = &item
-				return false, nil
-			}
-		}
-		return true, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if sg == nil {
-		return nil, errNotFound
-	}
-	return sg, nil
 }
 
 func getNetworks(client *gophercloud.ProviderClient, region string) ([]osnetworks.Network, error) {
@@ -339,31 +323,6 @@ func ensureKubernetesSecurityGroupExist(client *gophercloud.ProviderClient, regi
 	}
 
 	return nil
-}
-
-func ensureServerGroupExists(computeClient *gophercloud.ServiceClient, n string) (string, error) {
-	// Set microversion 2.15 that supports soft-anti-affinity
-	old := computeClient.Microversion
-	defer func() {
-		computeClient.Microversion = old
-	}()
-	computeClient.Microversion = "2.15"
-
-	sg, err := serverGroupByName(computeClient, n)
-	if err != nil {
-		if err == errNotFound {
-			sg, err := osservergroups.Create(computeClient, &osservergroups.CreateOpts{
-				Name:     n,
-				Policies: []string{"soft-anti-affinity"},
-			}).Extract()
-			if err != nil {
-				return "", err
-			}
-			return sg.ID, nil
-		}
-		return "", err
-	}
-	return sg.ID, nil
 }
 
 func getFreeFloatingIPs(client *gophercloud.ProviderClient, region string, floatingIPPool *osnetworks.Network) ([]osfloatingips.FloatingIP, error) {
