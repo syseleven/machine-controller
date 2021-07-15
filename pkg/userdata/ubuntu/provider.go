@@ -192,7 +192,7 @@ write_files:
 
 {{- /* Disable systemd-resolved to give place to local DNS cache  */}}
     systemctl stop systemd-resolved
-    ln -sf /run/systemd/resolve/resolv.conf  /etc/resolv.conf
+    ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 
 {{- /* As we added some modules and don't want to reboot, restart the service */}}
     systemctl restart systemd-modules-load.service
