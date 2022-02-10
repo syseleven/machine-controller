@@ -40,7 +40,7 @@ func deleteInterfacesByMachineUID(ctx context.Context, c *config, machineUID typ
 
 	list, err := ifClient.List(ctx, c.ResourceGroup)
 	if err != nil {
-		return fmt.Errorf("failed to list interfaces in resource group %q", c.ResourceGroup)
+		return fmt.Errorf("failed to list interfaces in resource group %q: %v", c.ResourceGroup, err)
 	}
 
 	var allInterfaces []network.Interface
