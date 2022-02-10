@@ -267,7 +267,7 @@ func (p *provider) Cleanup(machine *v1alpha1.Machine, data *cloudprovidertypes.P
 	foundInstance, err := p.Get(machine, data)
 	if err != nil {
 		if err == cloudprovidererrors.ErrInstanceNotFound {
-			return util.RemoveFinalizerOnInstanceNotFound(finalizerInstance, machine, data)
+			return util.RemoveFinalizer(finalizerInstance, machine, data)
 		}
 		return false, err
 	}

@@ -24,8 +24,8 @@ import (
 	kuberneteshelper "github.com/kubermatic/machine-controller/pkg/kubernetes"
 )
 
-// RemoveFinalizerOnInstanceNotFound checks whether a finalizer exists and removes it on demand.
-func RemoveFinalizerOnInstanceNotFound(finalizer string,
+// RemoveFinalizer checks whether a finalizer exists and removes it on demand.
+func RemoveFinalizer(finalizer string,
 	machine *v1alpha1.Machine,
 	provider *cloudprovidertypes.ProviderData) (bool, error) {
 

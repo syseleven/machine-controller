@@ -80,7 +80,7 @@ func TestRemoveFinalizerOnInstanceNotFound(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			if removed, err := RemoveFinalizerOnInstanceNotFound("test_finalizer_1", tc.machine, tc.providerData); err != nil || !removed {
+			if removed, err := RemoveFinalizer("test_finalizer_1", tc.machine, tc.providerData); err != nil || !removed {
 				t.Fatalf("failed removing finalizer: %v", err)
 			}
 
