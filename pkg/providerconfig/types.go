@@ -44,6 +44,9 @@ type ConfigVarResolver struct {
 }
 
 func (cvr *ConfigVarResolver) GetConfigVarDurationValue(configVar *providerconfigtypes.ConfigVarString) (time.Duration, error) {
+	if configVar == nil {
+		return 0, nil
+	}
 	durStr, err := cvr.GetConfigVarStringValue(configVar)
 	if err != nil {
 		return 0, err
@@ -53,6 +56,9 @@ func (cvr *ConfigVarResolver) GetConfigVarDurationValue(configVar *providerconfi
 }
 
 func (cvr *ConfigVarResolver) GetConfigVarDurationValueOrDefault(configVar *providerconfigtypes.ConfigVarString, defaultDuration time.Duration) (time.Duration, error) {
+	if configVar == nil {
+		return 0, nil
+	}
 	durStr, err := cvr.GetConfigVarStringValue(configVar)
 	if err != nil {
 		return 0, err
@@ -110,6 +116,9 @@ func (cvr *ConfigVarResolver) GetConfigVarStringValue(configVar *providerconfigt
 // GetConfigVarStringValueOrEnv tries to get the value from ConfigVarString, when it fails, it falls back to
 // getting the value from an environment variable specified by envVarName parameter
 func (cvr *ConfigVarResolver) GetConfigVarStringValueOrEnv(configVar *providerconfigtypes.ConfigVarString, envVarName string) (string, error) {
+	if configVar == nil {
+		 return "", nil
+	}
 	cfgVar, err := cvr.GetConfigVarStringValue(configVar)
 	if err == nil && len(cfgVar) > 0 {
 		return cfgVar, err
@@ -120,6 +129,9 @@ func (cvr *ConfigVarResolver) GetConfigVarStringValueOrEnv(configVar *providerco
 }
 
 func (cvr *ConfigVarResolver) GetConfigVarBoolValue(configVar *providerconfigtypes.ConfigVarBool) (bool, error) {
+	if configVar == nil {
+		return false, nil
+	}
 	cvs := &providerconfigtypes.ConfigVarString{Value: strconv.FormatBool(configVar.Value), SecretKeyRef: configVar.SecretKeyRef}
 	stringVal, err := cvr.GetConfigVarStringValue(cvs)
 	if err != nil {
