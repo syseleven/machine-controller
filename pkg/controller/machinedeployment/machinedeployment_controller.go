@@ -32,9 +32,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -67,6 +69,19 @@ func Add(mgr manager.Manager) error {
 	return add(mgr, newReconciler(mgr), r.MachineSetToDeployments)
 }
 
+// enqueueExceptDelete helps to ignore delete events for machinedeployment resources.
+// It behaves just like EnqueueRequestForObject except we override Delete func.
+// It is useful to solve partial deadlocks due to old state of a machinedeployment in the cache.
+// It occurs when machinedeployment in cache that does not yet reflect deletion state,
+// and controller ends up recreating machineset for it.
+// It is safe to ignore delete events for machinedeployment because deleting child resources
+// handled via owner references and there is nothing else to do.
+type enqueueExceptDelete struct {
+	handler.EnqueueRequestForObject
+}
+
+func (e *enqueueExceptDelete) Delete(_ event.DeleteEvent, _ workqueue.RateLimitingInterface) {}
+
 // add adds a new Controller to mgr with r as the reconcile.Reconciler.
 func add(mgr manager.Manager, r reconcile.Reconciler, mapFn handler.MapFunc) error {
 	// Create a new controller.
@@ -78,7 +93,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler, mapFn handler.MapFunc) err
 	// Watch for changes to MachineDeployment.
 	err = c.Watch(&source.Kind{
 		Type: &v1alpha1.MachineDeployment{}},
-		&handler.EnqueueRequestForObject{},
+		&enqueueExceptDelete{},
 	)
 	if err != nil {
 		return err
@@ -122,12 +137,6 @@ func (r *ReconcileMachineDeployment) Reconcile(ctx context.Context, request reco
 		}
 		// Error reading the object - requeue the request.
 		return reconcile.Result{}, err
-	}
-
-	// Ignore deleted MachineDeployments, this can happen when foregroundDeletion
-	// is enabled
-	if d.DeletionTimestamp != nil {
-		return reconcile.Result{}, nil
 	}
 
 	result, err := r.reconcile(ctx, d)
