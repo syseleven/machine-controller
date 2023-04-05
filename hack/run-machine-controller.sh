@@ -16,6 +16,8 @@
 
 set -e
 
+: "${DEBUG:="false"}"
+
 # Use a special env variable for machine-controller only
 # This kubeconfig should point to the cluster where machinedeployments, machines are installed.
 MC_KUBECONFIG=${MC_KUBECONFIG:-$(dirname $0)/../.kubeconfig}
@@ -23,13 +25,25 @@ MC_KUBECONFIG=${MC_KUBECONFIG:-$(dirname $0)/../.kubeconfig}
 
 # `-use-osm` flag can be specified if https://github.com/kubermatic/operating-system-manager is used to manage user data.
 
-make -C $(dirname $0)/.. build-machine-controller
-$(dirname $0)/../machine-controller \
-  -kubeconfig=$MC_KUBECONFIG \
-  -worker-count=50 \
+if [[ "${DEBUG}" == "true" ]]; then
+    GOTOOLFLAGS="-v -gcflags='all=-N -l'" LDFLAGS="" make -C $(dirname $0)/.. build-machine-controller
+    RUNCMD="dlv --listen=:2345 --headless=true --api-version=2 --accept-multiclient exec $(dirname $0)/../machine-controller --"
+else
+    make -C $(dirname $0)/.. build-machine-controller
+    RUNCMD="$(dirname $0)/../machine-controller"
+fi
+
+unset $(set | egrep '^OS_' | sed 's/=.*//')
+export $(KUBECONFIG=/tmp/kc kubectl view-secret cloud-env -n kube-system -a)
+#. "$(dirname $0)/openrc-dev-fes-admin"
+
+$RUNCMD \
+  -kubeconfig=/tmp/kc \
+  -worker-count=1 \
   -logtostderr \
   -v=6 \
-  -cluster-dns=172.16.0.10 \
+  -cluster-dns=10.96.0.10 \
+  -node-csr-approver \
   -enable-profiling \
   -metrics-address=0.0.0.0:8080 \
   -health-probe-address=0.0.0.0:8085 \

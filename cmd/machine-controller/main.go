@@ -304,7 +304,7 @@ func main() {
 func createManager(syncPeriod time.Duration, options controllerRunOptions) (manager.Manager, error) {
 	mgr, err := manager.New(options.cfg, manager.Options{
 		SyncPeriod:              &syncPeriod,
-		LeaderElection:          true,
+		LeaderElection:          false,
 		LeaderElectionID:        "machine-controller",
 		LeaderElectionNamespace: defaultLeaderElectionNamespace,
 		HealthProbeBindAddress:  healthProbeAddress,

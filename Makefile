@@ -55,7 +55,9 @@ machine-controller-userdata-%: cmd/userdata/% $(shell find cmd/userdata/$* pkg -
 
 %: cmd/% $(shell find cmd/$* pkg -name '*.go')
 	GOOS=$(GOOS) go build -v \
+		-v \
 		$(LDFLAGS) \
+		-gcflags='all=-N -l' \
 		-o $@ \
 		github.com/kubermatic/machine-controller/cmd/$*
 
