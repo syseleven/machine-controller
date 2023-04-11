@@ -70,6 +70,9 @@ var (
 	skipEvictionAfter                time.Duration
 	caBundleFile                     string
 
+	openstackClientTimeout        time.Duration
+	openstackComputeClientTimeout time.Duration
+
 	useOSM bool
 
 	nodeCSRApprover               bool
@@ -106,6 +109,10 @@ type controllerRunOptions struct {
 	// Name of the ServiceAccount from which the bootstrap token secret will be fetched. A bootstrap token will be created
 	// if this is nil
 	bootstrapTokenServiceAccountName *types.NamespacedName
+
+	openstackClientTimeout time.Duration
+
+	openstackComputeClientTimeout time.Duration
 
 	// prometheusRegisterer is used by the MachineController instance to register its metrics
 	prometheusRegisterer prometheus.Registerer
@@ -151,6 +158,8 @@ func main() {
 	flag.StringVar(&name, "name", "", "When set, the controller will only process machines with the label \"machine.k8s.io/controller\": name")
 	flag.StringVar(&joinClusterTimeout, "join-cluster-timeout", "", "when set, machines that have an owner and do not join the cluster within the configured duration will be deleted, so the owner re-creats them")
 	flag.StringVar(&bootstrapTokenServiceAccountName, "bootstrap-token-service-account-name", "", "When set use the service account token from this SA as bootstrap token instead of creating a temporary one. Passed in namespace/name format")
+	flag.DurationVar(&openstackClientTimeout, "osk-client-timeout", 15*time.Second, "Client timeout for requests against Openstack APIs")
+	flag.DurationVar(&openstackComputeClientTimeout, "osk-compute-client-timeout", 0, "Client timeout specifically for requests against the Openstack compute API. If left unset, defaults to osk-client-timeout.")
 	flag.BoolVar(&profiling, "enable-profiling", false, "when set, enables the endpoints on the http server under /debug/pprof/")
 	flag.DurationVar(&skipEvictionAfter, "skip-eviction-after", 2*time.Hour, "Skips the eviction if a machine is not gone after the specified duration.")
 	flag.StringVar(&nodeHTTPProxy, "node-http-proxy", "", "If set, it configures the 'HTTP_PROXY' & 'HTTPS_PROXY' environment variable on the nodes.")
@@ -246,14 +255,16 @@ func main() {
 	}
 
 	runOptions := controllerRunOptions{
-		kubeClient:           kubeClient,
-		kubeconfigProvider:   kubeconfigProvider,
-		name:                 name,
-		cfg:                  machineCfg,
-		metrics:              ctrlMetrics,
-		prometheusRegisterer: metrics.Registry,
-		skipEvictionAfter:    skipEvictionAfter,
-		nodeCSRApprover:      nodeCSRApprover,
+		kubeClient:                    kubeClient,
+		kubeconfigProvider:            kubeconfigProvider,
+		name:                          name,
+		cfg:                           machineCfg,
+		metrics:                       ctrlMetrics,
+		prometheusRegisterer:          metrics.Registry,
+		openstackClientTimeout:        openstackClientTimeout,
+		openstackComputeClientTimeout: openstackComputeClientTimeout,
+		skipEvictionAfter:             skipEvictionAfter,
+		nodeCSRApprover:               nodeCSRApprover,
 		node: machinecontroller.NodeSettings{
 			ClusterDNSIPs:                clusterDNSIPs,
 			HTTPProxy:                    nodeHTTPProxy,
@@ -280,6 +291,10 @@ func main() {
 			klog.Fatalf("Splitting the bootstrap-token-service-account-name flag value in '/' returned %d parts, expected exactly two", flagPartsLen)
 		}
 		runOptions.bootstrapTokenServiceAccountName = &types.NamespacedName{Namespace: flagParts[0], Name: flagParts[1]}
+	}
+
+	if runOptions.openstackComputeClientTimeout == 0 {
+		runOptions.openstackComputeClientTimeout = runOptions.openstackClientTimeout
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -393,6 +408,8 @@ func (bs *controllerBootstrap) Start(ctx context.Context) error {
 		bs.opt.kubeconfigProvider,
 		providerData,
 		bs.opt.joinClusterTimeout,
+		bs.opt.openstackClientTimeout,
+		bs.opt.openstackComputeClientTimeout,
 		bs.opt.name,
 		bs.opt.bootstrapTokenServiceAccountName,
 		bs.opt.skipEvictionAfter,

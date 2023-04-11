@@ -175,6 +175,8 @@ func Add(
 	kubeconfigProvider KubeconfigProvider,
 	providerData *cloudprovidertypes.ProviderData,
 	joinClusterTimeout *time.Duration,
+	openstackClientTimeout time.Duration,
+	openstackComputeClientTimeout time.Duration,
 	name string,
 	bootstrapTokenServiceAccountName *types.NamespacedName,
 	skipEvictionAfter time.Duration,
