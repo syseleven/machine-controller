@@ -80,7 +80,9 @@ func getRegions(client *gophercloud.ProviderClient) ([]osregions.Region, error) 
 }
 
 func getNewComputeV2(client *gophercloud.ProviderClient, c *Config) (*gophercloud.ServiceClient, error) {
-	computeClient, err := goopenstack.NewComputeV2(client, gophercloud.EndpointOpts{Region: c.Region})
+	cc := *client
+	cc.HTTPClient.Timeout = c.OpenstackComputeClientTimeout
+	computeClient, err := goopenstack.NewComputeV2(&cc, gophercloud.EndpointOpts{Region: c.Region})
 	if err != nil {
 		return nil, err
 	}
