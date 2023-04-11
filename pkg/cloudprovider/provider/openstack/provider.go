@@ -623,7 +623,10 @@ func (p *provider) Create(machine *clusterv1alpha1.Machine, data *cloudprovidert
 		return nil, osErrorToTerminalError(err, "failed to get a openstack client")
 	}
 
-	computeClient, err := getNewComputeV2(client, cfg)
+	var cc gophercloud.ProviderClient
+	cc = *client
+	cc.HTTPClient.Timeout = 60 * time.Second
+	computeClient, err := getNewComputeV2(&cc, cfg)
 	if err != nil {
 		return nil, osErrorToTerminalError(err, "failed to get a openstack client")
 	}
