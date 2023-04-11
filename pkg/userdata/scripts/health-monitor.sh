@@ -82,6 +82,9 @@ function kubelet_monitoring() {
     if journalctl -u kubelet -n 1 | grep -q "use of closed network connection"; then
       failed=true
       echo "Kubelet stopped posting node status. Restarting"
+    elif [ "$(systemctl show  kubelet.service -p MemoryCurrent | cut -d= -f2)" -gt 2000000000 ]; then
+      failed=true
+      echo "Kubelet consuming too much memory. Restarting"
     elif ! output=$(curl -m "${max_seconds}" -f -s -S http://127.0.0.1:10248/healthz 2>&1); then
       failed=true
       # Print the response and/or errors.
