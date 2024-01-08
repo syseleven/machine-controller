@@ -150,7 +150,7 @@ write_files:
     rm -f "$cri_tools_filename"
     ln -sf "$opt_bin/crictl" "$usr_local_bin"/crictl || echo "symbolic link is skipped"
     cd -
-    KUBE_VERSION="${KUBE_VERSION:-v1.27.6}"
+    KUBE_VERSION="${KUBE_VERSION:-v1.26.12}"
     kube_dir="$opt_bin/kubernetes-$KUBE_VERSION"
     kube_base_url="https://dl.k8s.io/$KUBE_VERSION/bin/linux/$arch"
     kube_sum_file="$kube_dir/sha256"
@@ -398,12 +398,13 @@ write_files:
       RotateKubeletServerCertificate: true
     fileCheckFrequency: 0s
     httpCheckFrequency: 0s
+    imageMaximumGCAge: 0s
     imageMinimumGCAge: 0s
     kind: KubeletConfiguration
     kubeReserved:
       cpu: 200m
       ephemeral-storage: 1Gi
-      memory: 300Mi
+      memory: 200Mi
     logging:
       flushFrequency: 0
       options:
@@ -425,7 +426,7 @@ write_files:
     systemReserved:
       cpu: 200m
       ephemeral-storage: 1Gi
-      memory: 500Mi
+      memory: 200Mi
     tlsCipherSuites:
     - TLS_AES_128_GCM_SHA256
     - TLS_AES_256_GCM_SHA384
