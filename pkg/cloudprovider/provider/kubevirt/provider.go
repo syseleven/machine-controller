@@ -263,14 +263,14 @@ func (p *provider) getConfig(provSpec clusterv1alpha1.ProviderSpec) (*Config, *p
 		return nil, nil, fmt.Errorf(`failed to get value of "osImageSource" field: %w`, err)
 	}
 
-	pvcSize, err := p.configVarResolver.GetConfigVarStringValue(rawConfig.VirtualMachine.Template.PrimaryDisk.Size)
+	pvcSize, err := p.configVarResolver.GetConfigVarStringValue(&rawConfig.VirtualMachine.Template.PrimaryDisk.Size)
 	if err != nil {
 		return nil, nil, fmt.Errorf(`failed to get value of "pvcSize" field: %w`, err)
 	}
 	if config.PVCSize, err = resource.ParseQuantity(pvcSize); err != nil {
 		return nil, nil, fmt.Errorf(`failed to parse value of "pvcSize" field: %w`, err)
 	}
-	config.StorageClassName, err = p.configVarResolver.GetConfigVarStringValue(rawConfig.VirtualMachine.Template.PrimaryDisk.StorageClassName)
+	config.StorageClassName, err = p.configVarResolver.GetConfigVarStringValue(&rawConfig.VirtualMachine.Template.PrimaryDisk.StorageClassName)
 	if err != nil {
 		return nil, nil, fmt.Errorf(`failed to get value of "storageClassName" field: %w`, err)
 	}
@@ -294,7 +294,7 @@ func (p *provider) getConfig(provSpec clusterv1alpha1.ProviderSpec) (*Config, *p
 	}
 	config.SecondaryDisks = make([]SecondaryDisks, 0, len(rawConfig.VirtualMachine.Template.SecondaryDisks))
 	for i, sd := range rawConfig.VirtualMachine.Template.SecondaryDisks {
-		sdSizeString, err := p.configVarResolver.GetConfigVarStringValue(sd.Size)
+		sdSizeString, err := p.configVarResolver.GetConfigVarStringValue(&sd.Size)
 		if err != nil {
 			return nil, nil, fmt.Errorf(`failed to parse "secondaryDisks.size" field: %w`, err)
 		}
@@ -303,7 +303,7 @@ func (p *provider) getConfig(provSpec clusterv1alpha1.ProviderSpec) (*Config, *p
 			return nil, nil, fmt.Errorf(`failed to parse value of "secondaryDisks.size" field: %w`, err)
 		}
 
-		scString, err := p.configVarResolver.GetConfigVarStringValue(sd.StorageClassName)
+		scString, err := p.configVarResolver.GetConfigVarStringValue(&sd.StorageClassName)
 		if err != nil {
 			return nil, nil, fmt.Errorf(`failed to parse value of "secondaryDisks.storageClass" field: %w`, err)
 		}
@@ -329,7 +329,7 @@ func (p *provider) getConfig(provSpec clusterv1alpha1.ProviderSpec) (*Config, *p
 }
 
 func (p *provider) getStorageAccessType(accessType providerconfigtypes.ConfigVarString) corev1.PersistentVolumeAccessMode {
-	at, _ := p.configVarResolver.GetConfigVarStringValue(accessType)
+	at, _ := p.configVarResolver.GetConfigVarStringValue(&accessType)
 	if at == "" {
 		return corev1.ReadWriteOnce
 	}
