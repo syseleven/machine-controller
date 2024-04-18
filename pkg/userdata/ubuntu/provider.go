@@ -181,6 +181,24 @@ write_files:
     # Enable cgroups memory and swap accounting
     GRUB_CMDLINE_LINUX="cgroup_enable=memory swapaccount=1"
 
+- path: "/opt/bin/kube-setup"
+  permissions: "0755"
+  content: |
+    #!/bin/bash
+    set -xeuo pipefail
+{{ .ContainerRuntimeScript | indent 4 }}
+
+{{ safeDownloadBinariesScript .KubeletVersion | indent 4 }}
+    # set kubelet nodeip environment variable
+    /opt/bin/setup_net_env.sh
+
+    systemctl enable --now kubelet
+    systemctl enable --now --no-block kubelet-healthcheck.service
+    {{- if eq .CloudProviderName "kubevirt" }}
+    systemctl enable --now --no-block restart-kubelet.service
+    {{ end }}
+    systemctl disable setup.service
+
 - path: "/opt/bin/setup"
   permissions: "0755"
   content: |
@@ -211,41 +229,7 @@ write_files:
       nfs-common \
       socat \
       util-linux \
-      {{- if or (eq .CloudProviderName "vsphere") (eq .CloudProviderName "vmware-cloud-director") }}
-      open-vm-tools \
-      {{- end }}
-      {{- if eq .CloudProviderName "nutanix" }}
-      open-iscsi \
-      {{- end }}
       ipvsadm
-
-    {{- /* iscsid service is required on Nutanix machines for CSI driver to attach volumes. */}}
-    {{- if eq .CloudProviderName "nutanix" }}
-    systemctl enable --now iscsid
-    {{ end }}
-
-    # Update grub to include kernel command options to enable swap accounting.
-    # Exclude alibaba cloud until this is fixed https://github.com/kubermatic/machine-controller/issues/682
-    {{ if eq .CloudProviderName "alibaba" }}
-    if grep -v -q swapaccount=1 /proc/cmdline
-    then
-      echo "Reboot system if not alibaba cloud"
-      update-grub
-      touch /var/run/reboot-required
-    fi
-    {{ end }}
-{{ .ContainerRuntimeScript | indent 4 }}
-
-{{ safeDownloadBinariesScript .KubeletVersion | indent 4 }}
-    # set kubelet nodeip environment variable
-    /opt/bin/setup_net_env.sh
-
-    systemctl enable --now kubelet
-    systemctl enable --now --no-block kubelet-healthcheck.service
-    {{- if eq .CloudProviderName "kubevirt" }}
-    systemctl enable --now --no-block restart-kubelet.service
-    {{ end }}
-    systemctl disable setup.service
 
 - path: "/opt/bin/supervise.sh"
   permissions: "0755"
@@ -308,6 +292,22 @@ write_files:
     EnvironmentFile=-/etc/environment
     ExecStart=/opt/bin/supervise.sh /opt/bin/setup
 
+- path: "/etc/systemd/system/kube-setup.service"
+  permissions: "0644"
+  content: |
+    [Install]
+    WantedBy=multi-user.target
+
+    [Unit]
+    Requires=network-online.target
+    After=network-online.target
+
+    [Service]
+    Type=oneshot
+    RemainAfterExit=true
+    EnvironmentFile=-/etc/environment
+    ExecStart=/opt/bin/supervise.sh /opt/bin/kube-setup
+
 - path: "/etc/profile.d/opt-bin-path.sh"
   permissions: "0644"
   content: |
@@ -339,42 +339,7 @@ write_files:
   append: true
 {{- end }}
 
-{{- if eq .CloudProviderName "kubevirt" }}
-- path: "/opt/bin/restart-kubelet.sh"
-  permissions: "0744"
-  content: |
-    #!/bin/bash
-    # Needed for Kubevirt provider because if the virt-launcher pod is deleted,
-    # the VM and DataVolume states are kept and VM is rebooted. We need to restart the kubelet
-    # with the new config (new IP) and run this at every boot.
-    set -xeuo pipefail
-
-    # This helps us avoid an unnecessary restart for kubelet on the first boot
-    if [ -f /etc/kubelet_needs_restart ]; then
-      # restart kubelet since it's not the first boot
-      systemctl daemon-reload
-      systemctl restart kubelet.service
-    else
-      touch /etc/kubelet_needs_restart
-    fi
-
-- path: "/etc/systemd/system/restart-kubelet.service"
-  permissions: "0644"
-  content: |
-    [Unit]
-    Requires=kubelet.service
-    After=kubelet.service
-
-    Description=Service responsible for restarting kubelet when the machine is rebooted
-
-    [Service]
-    Type=oneshot
-    ExecStart=/opt/bin/restart-kubelet.sh
-
-    [Install]
-    WantedBy=multi-user.target
-{{- end }}
-
 runcmd:
+- systemctl enable --now kubelet.service
 - systemctl enable --now setup.service
 `
