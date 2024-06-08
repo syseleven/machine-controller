@@ -77,6 +77,11 @@ bs-version        = {{ default "auto" .BlockStorage.BSVersion | iniEscape }}
 {{- if .BlockStorage.NodeVolumeAttachLimit }}
 node-volume-attach-limit = {{ .BlockStorage.NodeVolumeAttachLimit }}
 {{- end }}
+{{- if .Route.RouterID }}
+
+[Route]
+router-id = {{ .Route.RouterID }}
+{{- end }}
 `
 )
 
@@ -103,6 +108,11 @@ type BlockStorageOpts struct {
 	NodeVolumeAttachLimit uint   `gcfg:"node-volume-attach-limit"`
 }
 
+// RouterOpts is used for Neutron routes
+type RouterOpts struct {
+	RouterID string `gcfg:"router-id"`
+}
+
 type GlobalOpts struct {
 	AuthURL                     string `gcfg:"auth-url"`
 	Username                    string
@@ -127,6 +137,7 @@ type CloudConfig struct {
 	Global       GlobalOpts
 	LoadBalancer LoadBalancerOpts
 	BlockStorage BlockStorageOpts
+	Route        RouterOpts
 	Version      string
 }
 

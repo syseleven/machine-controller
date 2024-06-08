@@ -182,6 +182,32 @@ func TestCloudConfigToString(t *testing.T) {
 				Version:      "1.10.0",
 			},
 		},
+		{
+			name: "config-with-router-id",
+			config: &CloudConfig{
+				Global: GlobalOpts{
+					AuthURL:     "https://127.0.0.1:8443",
+					Username:    "admin",
+					Password:    "password",
+					DomainName:  "Default",
+					ProjectName: "Test",
+					Region:      "eu-central1",
+				},
+				BlockStorage: BlockStorageOpts{
+					BSVersion:             "v2",
+					IgnoreVolumeAZ:        true,
+					TrustDevicePath:       true,
+					NodeVolumeAttachLimit: 25,
+				},
+				LoadBalancer: LoadBalancerOpts{
+					ManageSecurityGroups: true,
+				},
+				Route: RouterOpts{
+					RouterID: "12345-6666-7777",
+				},
+				Version: "1.10.0",
+			},
+		},
 	}
 
 	for _, test := range tests {
